@@ -1,0 +1,96 @@
+@page "/"
+@page "/fetchproducts"
+@inject HttpClient HttpClient
+@implements IDisposable
+
+<h3>InventoryHub Products</h3>
+
+@if (loading)
+{
+    <p>Loading products...</p>
+}
+else if (!string.IsNullOrEmpty(error))
+{
+    <p role="alert">@error</p>
+}
+else if (products == null || products.Length == 0)
+{
+    <p>No products found.</p>
+}
+else
+{
+    <ul>
+        @foreach (var product in products)
+        {
+            <li>
+                @product.Name - $@product.Price.ToString("0.00")
+                | Stock: @product.Stock
+                | Category: @product.Category.Name
+            </li>
+        }
+    </ul>
+}
+
+@code {
+    private Product[]? products;
+
+    private string? error;
+
+    private bool loading = true;
+
+    private readonly CancellationTokenSource cancellation = new();
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            // only call the api once when the page loads lowkey
+            using var response = await HttpClient.GetAsync(
+                "api/productlist",
+                cancellation.Token
+            );
+
+            response.EnsureSuccessStatusCode();
+
+            products = await response.Content.ReadFromJsonAsync<Product[]>(
+                cancellation.Token
+            );
+
+            if (products == null || products.Any(product =>
+                string.IsNullOrWhiteSpace(product.Name) ||
+                product.Category == null))
+            {
+                error = "Product data was missing or invalid.";
+            }
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            // the page closed so we can stop here
+        }
+        catch (HttpRequestException)
+        {
+            error = "Could not load products from the server.";
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            error = "The server returned invalid product data.";
+        }
+        catch (TaskCanceledException)
+        {
+            error = "The request timed out.";
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+
+    public void Dispose()
+    {
+        cancellation.Cancel();
+
+        cancellation.Dispose();
+    }
+}
